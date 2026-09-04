@@ -23,6 +23,11 @@ pub struct ServerConfig {
     pub display_variable_list: usize,
     #[serde(default)]
     pub display_join_current_code: bool,
+    /// Optional "host:port" for OpenOCD's telnet control interface. Used as a
+    /// fallback interrupt mechanism (send "halt") on platforms without POSIX
+    /// signals (Windows), since the running gdb process can't be sent SIGINT there.
+    #[serde(default)]
+    pub openocd_telnet_addr: Option<String>,
 }
 
 fn default_server_name() -> String {

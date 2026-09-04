@@ -20,7 +20,8 @@ pub trait GdbBackend: Send + Sync {
     async fn start(&mut self, executable_path: &Path) -> Result<()>;
     async fn exec(&mut self, command: &str) -> Result<String>;
     async fn stop(&mut self) -> Result<()>;
-    /// Send SIGINT to the GDB process to interrupt a running debuggee.
+    /// Interrupt a running debuggee: SIGINT on Unix, or an OpenOCD telnet
+    /// "halt" on Windows (if `openocd_telnet_addr` is configured).
     async fn interrupt(&mut self) -> Result<()>;
 }
 
@@ -62,6 +63,22 @@ impl RealGdbBackend {
                 "gdb process not started, call gdb_execute first".to_string(),
             ));
         }
+        Ok(())
+    }
+
+    #[cfg(windows)]
+    async fn halt_via_openocd_telnet(addr: &str) -> Result<()> {
+        use tokio::net::TcpStream;
+        let mut stream = timeout(Duration::from_secs(2), TcpStream::connect(addr))
+            .await
+            .map_err(|_| OpenMcpGdbError::Gdb("openocd telnet connect timed out".to_string()))?
+            .map_err(OpenMcpGdbError::Io)?;
+        stream.write_all(b"halt\n").await.map_err(OpenMcpGdbError::Io)?;
+        stream.flush().await.map_err(OpenMcpGdbError::Io)?;
+        // Wait for OpenOCD's response before closing, so the command is fully
+        // processed server-side rather than racing an early connection close.
+        let mut buf = [0u8; 1024];
+        let _ = timeout(Duration::from_millis(500), stream.read(&mut buf)).await;
         Ok(())
     }
 }
@@ -212,7 +229,18 @@ impl GdbBackend for RealGdbBackend {
             if let Some(pid) = child.id() {
                 // Send SIGINT to the gdb process to interrupt it.
                 // This will cause gdb to stop the running debuggee and return to the prompt.
+                #[cfg(unix)]
                 let _ = unsafe { libc::kill(pid as i32, libc::SIGINT) };
+                // Windows has no POSIX signals; fall back to asking OpenOCD (which owns
+                // the SWD link independently of gdb's stdin/remote-socket state) to halt
+                // the target directly via its telnet control port, if configured.
+                #[cfg(windows)]
+                {
+                    let _ = pid;
+                    if let Some(addr) = self.config.openocd_telnet_addr.clone() {
+                        Self::halt_via_openocd_telnet(&addr).await?;
+                    }
+                }
                 // Give gdb a moment to process the signal.
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
