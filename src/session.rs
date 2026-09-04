@@ -189,14 +189,9 @@ impl<'a> SessionCore<'a> {
     async fn execute(&mut self, operation: ToolOperation) -> Result<DebuggerResponse> {
         match operation {
             ToolOperation::Execute { executable_path } => {
-                println!(
-                    "[gdb_execute] requested executable_path={}",
-                    executable_path
-                );
                 self.execute_attach(executable_path).await
             }
             ToolOperation::Run => {
-                println!("[gdb_run] requested");
                 self.execute_run().await
             }
             ToolOperation::GdbServer { ip, port, pid } => self.execute_gdbserver(ip, port, pid).await,
@@ -437,10 +432,6 @@ impl<'a> SessionCore<'a> {
         if !executable.is_absolute() {
             self.debugger_state = DebuggerState::FailedToAttach;
             self.last_error = "executable_path must be absolute".to_string();
-            eprintln!(
-                "[gdb_execute] failed: executable path is not absolute: {}",
-                executable_path
-            );
             return Ok(self.base_response().with_error(self.last_error.clone()));
         }
         match self.backend.start(&executable).await {
@@ -448,19 +439,11 @@ impl<'a> SessionCore<'a> {
                 self.executable_path = Some(executable);
                 self.debugger_state = DebuggerState::Attached;
                 self.last_error.clear();
-                println!(
-                    "[gdb_execute] success: gdb started for {}",
-                    executable_path
-                );
                 Ok(self.base_response())
             }
             Err(err) => {
                 self.debugger_state = DebuggerState::FailedToAttach;
                 self.last_error = err.to_string();
-                eprintln!(
-                    "[gdb_execute] failed to start gdb for {}: {}",
-                    executable_path, self.last_error
-                );
                 Ok(self.base_response().with_error(self.last_error.clone()))
             }
         }
@@ -528,13 +511,6 @@ impl<'a> SessionCore<'a> {
                 {
                     self.last_error.clear();
                 }
-                if command == "run" {
-                    println!(
-                        "[gdb_run] success: debugger_state={:?}, gdb_output={}",
-                        self.debugger_state,
-                        output.trim()
-                    );
-                }
                 let mut response = self.base_response();
                 if include_output {
                     response.command_output = normalized_command_output(&output);
@@ -544,9 +520,6 @@ impl<'a> SessionCore<'a> {
             Err(err) => {
                 self.last_error = err.to_string();
                 self.debugger_state = DebuggerState::Error;
-                if command == "run" {
-                    eprintln!("[gdb_run] failed: {}", self.last_error);
-                }
                 let response = self.base_response().with_error(self.last_error.clone());
                 Ok(response)
             }
