@@ -36,6 +36,7 @@ fn mazerobot_config() -> ServerConfig {
         display_backtrace: 6,
         display_variable_list: 9,
         display_join_current_code: false,
+        openocd_telnet_addr: None,
     }
 }
 
